@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Seconds Stopwatch</title>
+
+  <meta name="theme-color" content="#0b0b0b"/>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" sizes="192x192" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+
+  <style>
+    :root { --fg:#111; --bg:#fafafa; --accent:#2563eb; --muted:#6b7280; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg:#f5f5f5; --bg:#0b0b0b; --accent:#60a5fa; --muted:#9ca3af; }
+    }
+    html,body { height:100%; margin:0; background:var(--bg); color:var(--fg); font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+    .wrap { min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px; padding:24px; }
+    .screen { font-variant-numeric: tabular-nums; font-weight:700; letter-spacing:1px; user-select:none; font-size: clamp(64px, 16vw, 160px); }
+    .sub { font-size:14px; color:var(--muted); margin-top:-16px; }
+    .row { display:flex; gap:12px; flex-wrap:wrap; justify-content:center; }
+    button {
+      appearance:none; border:0; border-radius:14px; padding:14px 18px;
+      font-size:16px; font-weight:600; cursor:pointer; transition:transform .04s ease;
+      background:#e5e7eb; color:#111;
+    }
+    button:active { transform:translateY(1px); }
+    .primary { background:var(--accent); color:white; }
+    .danger { background:#ef4444; color:white; }
+    .ghost  { background:transparent; border:1px solid #e5e7eb; color:var(--fg); }
+    footer { position:fixed; bottom:10px; width:100%; text-align:center; font-size:12px; color:var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="screen" id="display">0</div>
+    <div class="sub">seconds</div>
+    <div class="row">
+      <button class="primary" id="start">Start</button>
+      <button class="ghost"  id="pause" disabled>Pause</button>
+      <button class="danger" id="reset" disabled>Reset</button>
+      <button class="ghost" id="install" hidden>Add to Home</button>
+    </div>
+  </div>
+  <footer>Works offline. Use “Add to Home screen” for 1‑tap access.</footer>
+
+  <script>
+    // Register Service Worker for offline use
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./service-worker.js');
+      });
+    }
+
+    // PWA install prompt handling
+    let deferredPrompt = null;
+    const installBtn = document.getElementById('install');
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      installBtn.hidden = false;
+    });
+    installBtn?.addEventListener('click', async () => {
+      if (!deferredPrompt) return;
+      deferredPrompt.prompt();
+      await deferredPrompt.userChoice;
+      deferredPrompt = null;
+      installBtn.hidden = true;
+    });
+
+    // Drift-free stopwatch using performance.now()
+    let running = false;
+    let startTime = 0;        // ms (perf clock) when (re)started
+    let accumulated = 0;      // ms paused so far
+    let rafId = null;
+    let wakeLock = null;
+
+    const display = document.getElementById('display');
+    const btnStart = document.getElementById('start');
+    const btnPause = document.getElementById('pause');
+    const btnReset = document.getElementById('reset');
+
+    function formatSeconds(msElapsed) {
+      return Math.floor(msElapsed / 1000).toString(); // seconds only
+    }
+
+    function tick() {
+      const now = performance.now();
+      const elapsed = (now - startTime) + accumulated;
+      display.textContent = formatSeconds(elapsed);
+      rafId = requestAnimationFrame(tick);
+    }
+
+    async function requestWakeLock() {
+      try {
+        if ('wakeLock' in navigator && !wakeLock) {
+          wakeLock = await navigator.wakeLock.request('screen');
+          wakeLock.addEventListener('release', () => { wakeLock = null; });
+        }
+      } catch (_) { /* ignore if not available or denied */ }
+    }
+
+    function releaseWakeLock() {
+      if (wakeLock) { wakeLock.release(); wakeLock = null; }
+    }
+
+    function start() {
+      if (running) return;
+      running = true;
+      startTime = performance.now();
+      rafId = requestAnimationFrame(tick);
+      requestWakeLock();
+
+      btnStart.textContent = 'Resume';
+      btnPause.disabled = false;
+      btnReset.disabled = false;
+    }
+
+    function pause() {
+      if (!running) return;
+      running = false;
+      cancelAnimationFrame(rafId);
+      rafId = null;
+      accumulated += performance.now() - startTime;
+      releaseWakeLock();
+
+      btnPause.disabled = true;
+      btnStart.disabled = false;
+    }
+
+    function reset() {
+      running = false;
+      cancelAnimationFrame(rafId);
+      rafId = null;
+      accumulated = 0;
+      display.textContent = '0';
+      releaseWakeLock();
+
+      btnStart.textContent = 'Start';
+      btnPause.disabled = true;
+      btnReset.disabled = true;
+      btnStart.disabled = false;
+    }
+
+    // Wire up buttons
+    btnStart.addEventListener('click', () => {
+      start();
+      btnStart.disabled = true; // prevent double taps
+      btnPause.disabled = false;
+    });
+    btnPause.addEventListener('click', pause);
+    btnReset.addEventListener('click', reset);
+
+    // Pause if app is backgrounded (keeps accuracy but stops wakelock/raf)
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && running) pause();
+    });
+  </script>
+</body>
+</html>

@@ -25,11 +25,14 @@
       font-size:16px; font-weight:600; cursor:pointer; transition:transform .04s ease;
       background:#e5e7eb; color:#111;
     }
+    .big { font-size: clamp(18px, 6vw, 28px); padding: 18px 28px; border-radius:18px; min-width:min(520px, 90vw); }
     button:active { transform:translateY(1px); }
     .primary { background:var(--accent); color:white; }
     .danger { background:#ef4444; color:white; }
+  .success { background:#22c55e; color:white; }
     .ghost  { background:transparent; border:1px solid #e5e7eb; color:var(--fg); }
-    footer { position:fixed; bottom:10px; width:100%; text-align:center; font-size:12px; color:var(--muted); }
+  footer { position:fixed; bottom:10px; width:100%; text-align:center; font-size:12px; color:var(--muted); }
+  footer a { color: var(--accent); text-decoration: underline; cursor: pointer; }
   </style>
 </head>
 <body>
@@ -37,13 +40,12 @@
     <div class="screen" id="display">0</div>
     <div class="sub">seconds</div>
     <div class="row">
-      <button class="primary" id="start">Start</button>
-      <button class="ghost"  id="pause" disabled>Pause</button>
-      <button class="danger" id="reset" disabled>Reset</button>
-      <button class="ghost" id="install" hidden>Add to Home</button>
+  <button class="success big" id="control">Start</button>
     </div>
   </div>
-  <footer>Works offline. Use “Add to Home screen” for 1‑tap access.</footer>
+  <footer>
+    Works offline. Use <a id="install-link" href="#" hidden>Add to Home Screen</a> for 1‑tap access.
+  </footer>
 
   <script>
     // Register Service Worker for offline use
@@ -54,20 +56,22 @@
     }
 
     // PWA install prompt handling
-    let deferredPrompt = null;
-    const installBtn = document.getElementById('install');
+  let deferredPrompt = null;
+  const installLink = document.getElementById('install-link');
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
-      installBtn.hidden = false;
+      if (installLink) installLink.hidden = false;
     });
-    installBtn?.addEventListener('click', async () => {
+    async function handleInstallClick(ev) {
+      ev?.preventDefault?.();
       if (!deferredPrompt) return;
       deferredPrompt.prompt();
       await deferredPrompt.userChoice;
       deferredPrompt = null;
-      installBtn.hidden = true;
-    });
+      if (installLink) installLink.hidden = true;
+    }
+    installLink?.addEventListener('click', handleInstallClick);
 
     // Drift-free stopwatch using performance.now()
     let running = false;
@@ -77,9 +81,7 @@
     let wakeLock = null;
 
     const display = document.getElementById('display');
-    const btnStart = document.getElementById('start');
-    const btnPause = document.getElementById('pause');
-    const btnReset = document.getElementById('reset');
+  const btnControl = document.getElementById('control');
 
     function formatSeconds(msElapsed) {
       return Math.floor(msElapsed / 1000).toString(); // seconds only
@@ -111,22 +113,17 @@
       startTime = performance.now();
       rafId = requestAnimationFrame(tick);
       requestWakeLock();
-
-      btnStart.textContent = 'Resume';
-      btnPause.disabled = false;
-      btnReset.disabled = false;
+      updateControlButton();
     }
 
-    function pause() {
+    function stop() {
       if (!running) return;
       running = false;
       cancelAnimationFrame(rafId);
       rafId = null;
       accumulated += performance.now() - startTime;
       releaseWakeLock();
-
-      btnPause.disabled = true;
-      btnStart.disabled = false;
+      updateControlButton();
     }
 
     function reset() {
@@ -136,25 +133,47 @@
       accumulated = 0;
       display.textContent = '0';
       releaseWakeLock();
-
-      btnStart.textContent = 'Start';
-      btnPause.disabled = true;
-      btnReset.disabled = true;
-      btnStart.disabled = false;
+      updateControlButton();
     }
 
-    // Wire up buttons
-    btnStart.addEventListener('click', () => {
-      start();
-      btnStart.disabled = true; // prevent double taps
-      btnPause.disabled = false;
-    });
-    btnPause.addEventListener('click', pause);
-    btnReset.addEventListener('click', reset);
+    function updateControlButton() {
+      // Decide label and style based on state
+      if (running) {
+        btnControl.textContent = 'Stop';
+  btnControl.classList.remove('success', 'primary', 'ghost');
+        btnControl.classList.add('danger');
+      } else if (accumulated > 0) {
+        btnControl.textContent = 'Reset';
+  btnControl.classList.remove('danger', 'success');
+  btnControl.classList.add('primary');
+      } else {
+        btnControl.textContent = 'Start';
+  btnControl.classList.remove('danger', 'primary', 'ghost');
+  btnControl.classList.add('success');
+      }
+    }
 
-    // Pause if app is backgrounded (keeps accuracy but stops wakelock/raf)
+    // Wire up single control button
+    let clickGuard = false;
+    btnControl.addEventListener('click', () => {
+      if (clickGuard) return;
+      clickGuard = true;
+      setTimeout(() => (clickGuard = false), 250);
+      if (!running && accumulated === 0) {
+        start();
+      } else if (running) {
+        stop();
+      } else if (!running && accumulated > 0) {
+        reset();
+      }
+    });
+
+    // Initialize control button state
+    updateControlButton();
+
+    // Stop if app is backgrounded (keeps accuracy and releases wakelock)
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden' && running) pause();
+      if (document.visibilityState === 'hidden' && running) stop();
     });
   </script>
 </body>

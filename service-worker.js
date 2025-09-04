@@ -1,4 +1,4 @@
-const CACHE_NAME = 'seconds-stopwatch-v6';
+const CACHE_NAME = 'seconds-stopwatch-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -12,7 +12,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
     const cache = await caches.open(CACHE_NAME);
     await cache.addAll(ASSETS);
-    self.skipWaiting();
+    // Don't skip waiting automatically - let user decide
   })());
 });
 
@@ -22,6 +22,13 @@ self.addEventListener('activate', (event) => {
     await Promise.all(keys.map(k => { if (k !== CACHE_NAME) return caches.delete(k); }));
     self.clients.claim();
   })());
+});
+
+// Listen for skip waiting message from client
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener('fetch', (event) => {

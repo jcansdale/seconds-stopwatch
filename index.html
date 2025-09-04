@@ -47,13 +47,76 @@
     Works offline. Use <a id="install-link" href="#" hidden>Add to Home Screen</a> for 1‑tap access.
   </footer>
 
+  <!-- Service Worker Update Banner -->
+  <div id="update-banner" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: var(--accent); color: white; padding: 12px 16px; text-align: center; font-size: 14px; z-index: 1000; box-shadow: 0 2px 8px rgba(0,0,0,0.3);">
+    <span>A new version is available!</span>
+    <button id="refresh-btn" style="margin-left: 12px; padding: 4px 12px; background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; color: white; font-size: 12px; cursor: pointer;">Refresh</button>
+    <button id="dismiss-btn" style="margin-left: 8px; padding: 4px 8px; background: transparent; border: 1px solid rgba(255,255,255,0.4); border-radius: 4px; color: white; font-size: 12px; cursor: pointer;">Later</button>
+  </div>
+
   <script>
+    // Service worker update handling
+    let newWorkerWaiting = null;
+    const updateBanner = document.getElementById('update-banner');
+    const refreshBtn = document.getElementById('refresh-btn');
+    const dismissBtn = document.getElementById('dismiss-btn');
+
     // Register Service Worker for offline use
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./service-worker.js');
+      window.addEventListener('load', async () => {
+        try {
+          const registration = await navigator.serviceWorker.register('./service-worker.js');
+          
+          // Check for waiting service worker on initial registration
+          if (registration.waiting) {
+            newWorkerWaiting = registration.waiting;
+            showUpdateBanner();
+          }
+          
+          // Listen for new service worker waiting
+          registration.addEventListener('updatefound', () => {
+            const newWorker = registration.installing;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                newWorkerWaiting = newWorker;
+                showUpdateBanner();
+              }
+            });
+          });
+          
+        } catch (error) {
+          console.log('Service Worker registration failed:', error);
+        }
+      });
+
+      // Listen for service worker controller change (when new SW takes over)
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        // Reload the page when new service worker takes control
+        window.location.reload();
       });
     }
+
+    function showUpdateBanner() {
+      updateBanner.style.display = 'block';
+    }
+
+    function hideUpdateBanner() {
+      updateBanner.style.display = 'none';
+    }
+
+    // Handle refresh button click
+    refreshBtn?.addEventListener('click', () => {
+      if (newWorkerWaiting) {
+        newWorkerWaiting.postMessage({ type: 'SKIP_WAITING' });
+      } else if (window.newWorkerWaiting) {
+        window.newWorkerWaiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+    });
+
+    // Handle dismiss button click  
+    dismissBtn?.addEventListener('click', () => {
+      hideUpdateBanner();
+    });
 
     // PWA install prompt handling
   let deferredPrompt = null;
